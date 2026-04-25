@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>uc2m4a.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="uc2m4a.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="uc2m4a.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="uc2m4a.ico" />
+  </ItemGroup>
+
+</Project>
