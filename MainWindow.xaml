@@ -12,7 +12,7 @@
             <Setter Property="Background" Value="#7C3AED"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontWeight" Value="Normal"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -38,6 +38,7 @@
             <Setter Property="Background" Value="#2A2A3C"/>
             <Setter Property="Foreground" Value="#CDD6F4"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoSpaceFamily}"/>
             <Setter Property="BorderBrush" Value="#45475A"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="8,6"/>
@@ -59,6 +60,7 @@
             <Setter Property="Background" Value="#2A2A3C"/>
             <Setter Property="Foreground" Value="#CDD6F4"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoSpaceFamily}"/>
             <Setter Property="BorderBrush" Value="#45475A"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="8,6"/>
@@ -130,6 +132,7 @@
         <Style x:Key="LabelStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#A6ADC8"/>
             <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontFamily" Value="{StaticResource NormalFamily}"/>
             <Setter Property="Margin" Value="0,0,0,4"/>
         </Style>
     </Window.Resources>
@@ -173,7 +176,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBox Grid.Column="0" x:Name="TxtSrcPath" Text="未选择文件" Style="{StaticResource PathTextBox}" Margin="0,0,8,0"/>
+                <TextBox Grid.Column="0" x:Name="TxtSrcPath" Text="未选择文件" Style="{StaticResource PathTextBox}" Margin="0,0,8,0" IsReadOnly="False"/>
                 <Button Grid.Column="1" x:Name="BtnSrcBrowse" Content="浏览..." Style="{StaticResource AccentButton}" Click="BtnSrcBrowse_Click"/>
             </Grid>
         </Grid>
@@ -206,6 +209,7 @@
 
         <!-- 第五行：转换按钮 -->
         <Button Grid.Row="4" x:Name="BtnConvert" Content="转换" Style="{StaticResource AccentButton}" MaxWidth="128" Click="BtnConvert_Click"/>
+        <Button Grid.Row="4" x:Name="BtnUpdateMeta" Content="" HorizontalAlignment="Right" Style="{StaticResource AccentButton}" MaxWidth="32" ToolTip="更新元数据及文件名" Click="BtnUpdateMeta_Click"/>
 
         <!-- 第六行：状态提示 -->
         <TextBlock Grid.Row="5" x:Name="TxtStatus" Text="就绪" Foreground="#585B70" FontSize="11" Margin="0,4,0,0"/>

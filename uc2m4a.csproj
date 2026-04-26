@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <PackageReference Include="taglib-sharp-netstandard2.0" Version="2.1.0" />
+    <PackageReference Include="TagLibSharp2" Version="0.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="uc2m4a.ico" />
   </ItemGroup>
 
