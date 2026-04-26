@@ -26,7 +26,15 @@ namespace uc2m4a;
 /// </summary>
 public partial class MainWindow : Window
 {
-    #pragma warning disable CS8622 // 参数类型中引用类型的为 Null 性与目标委托不匹配(可能是由于为 Null 性特性)。
+#pragma warning disable IDE0079
+#pragma warning disable IDE0044
+#pragma warning disable IDE0059 // 不需要赋值
+#pragma warning disable IDE0060
+#pragma warning disable IDE0130
+#pragma warning disable IDE0220
+#pragma warning disable SYSLIB1045
+#pragma warning disable CS8622 // 参数类型中引用类型的为 Null 性与目标委托不匹配(可能是由于为 Null 性特性)。
+
 
     private readonly DispatcherTimer _progressTimer;
     private int _progressValue;
@@ -261,8 +269,8 @@ public partial class MainWindow : Window
         var shift = Keyboard.Modifiers == ModifierKeys.Shift;
         var none = Keyboard.Modifiers == ModifierKeys.None;
 
-        _m4a_filenames = _m4a_filenames.Distinct().Where(File.Exists).ToList();
-        if (_m4a_filenames.Any() && _m4a_filenames.Count <= 10)
+        _m4a_filenames = [.. _m4a_filenames.Distinct().Where(File.Exists)];
+        if (_m4a_filenames.Count > 0 && _m4a_filenames.Count <= 10)
         {
             if (none)
             {
@@ -321,7 +329,7 @@ public partial class MainWindow : Window
     /// <param name="e"></param>
     private async void BtnUpdateMeta_Click(object sender, RoutedEventArgs e)
     {
-        _m4a_filenames = _m4a_filenames.Distinct().Where(File.Exists).ToList();
+        _m4a_filenames = [.. _m4a_filenames.Distinct().Where(File.Exists)];
         await UpdateMetaAsync();
     }
 
@@ -392,7 +400,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="link"></param>
     /// <returns></returns>
-    private string CleanWebLink(string link)
+    private static string CleanWebLink(string link)
     {
         //https://music.163.com/song?id=5087878&uct2=U2FsdGVkX1+t0HRqsklYooXR1bHa8tZ+WfSZscVNrtk=
 
@@ -407,7 +415,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="link"></param>
     /// <returns></returns>
-    private int GetIdFromWebLink(string link)
+    private static int GetIdFromWebLink(string link)
     {
         var result = 0;
         if (string.IsNullOrEmpty(link)) return (result);
@@ -424,7 +432,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="filename"></param>
     /// <returns></returns>
-    private int GetSongIdFromFileName(string filename)
+    private static int GetSongIdFromFileName(string filename)
     {
         var result = 0;
         if (string.IsNullOrEmpty(filename)) return (result);
@@ -667,7 +675,7 @@ public partial class MainWindow : Window
                         //m4a.Tag. = song.URL;
                         m4a.Tag.Comment = song.URL;
                         m4a.Tag.Track = (uint)song.Track;
-                        m4a.Tag.Performers = song.Artists.Select(a => a.Name).ToArray();
+                        m4a.Tag.Performers = [.. song.Artists.Select(a => a.Name)];
                         m4a.Tag.Album = song.Album?.Title;
                         m4a.Tag.AlbumArtists = [song.Album?.Artist];
                         m4a.Tag.AlbumSort = song.Album?.Subtitle;
