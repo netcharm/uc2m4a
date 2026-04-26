@@ -39,7 +39,11 @@ public partial class MainWindow : Window
     private SaveType _saveType = SaveType.DefaultFolder;
     private string _cacheFolder = "%LOCALAPPDATA%\\NetEase\\CloudMusic\\Cache\\Cache"; // "\NetEase\CloudMusic\Cache\Cache\3368793123-320-decf7cd0a74c6a97703663018dcb0335.uc"
     private string _saveFolderPath = string.Empty;
+    private string _uc_filename = string.Empty;
     private string _m4a_filename = string.Empty;
+
+    private List<string> _uc_filenames = [];
+    private List<string> _m4a_filenames = [];
 
     private readonly SolidColorBrush COLOR_ERROR = new(Color.FromRgb(255, 32, 32)); // 红色
     private readonly SolidColorBrush COLOR_SUCCESS = new(Color.FromRgb(0x00, 0x7F, 0x46)); // 绿色
@@ -50,6 +54,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        _uc_filenames ??= [];
+        _m4a_filenames ??= [];
 
         // 模拟进度用的计时器
         _progressTimer = new DispatcherTimer
@@ -75,25 +82,7 @@ public partial class MainWindow : Window
             TxtSrcPath.SelectAll();
         };
 
-        Drop += async (sender, e) =>
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                try
-                {
-                    var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                    if (files.Length > 0)
-                    {
-                        var file_uc = files[0];
-                        TxtSrcPath.Text = file_uc;
-                        var (ret, reason) = await ConvertFileAsync(file_uc);
-                        TxtStatus.Text = reason;
-                        TxtStatus.ToolTip = TxtStatus.Text;
-                    }
-                }
-                catch { }
-            }
-        };
+        Drop += ProcessingDrop;
     }
 
     /// <summary>
@@ -213,6 +202,9 @@ public partial class MainWindow : Window
         var file_uc = TxtSrcPath.Text;
         if (!string.IsNullOrEmpty(file_uc))
         {
+            _uc_filenames.Clear();
+            _m4a_filenames.Clear();
+
             if (File.Exists(file_uc))
                 await ConvertFileAsync(file_uc);
             else
@@ -266,9 +258,43 @@ public partial class MainWindow : Window
     /// <param name="e"></param>
     private void BtnPlayM4A_Click(object sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(_m4a_filename) && File.Exists(_m4a_filename))
+        var shift = Keyboard.Modifiers == ModifierKeys.Shift;
+        var none = Keyboard.Modifiers == ModifierKeys.None;
+
+        _m4a_filenames = _m4a_filenames.Distinct().Where(File.Exists).ToList();
+        if (_m4a_filenames.Any() && _m4a_filenames.Count <= 10)
         {
-            if (Keyboard.Modifiers == ModifierKeys.None)
+            if (none)
+            {
+                foreach (var m4a in _m4a_filenames)
+                {
+                    if (File.Exists(m4a))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = m4a,
+                            UseShellExecute = true
+                        });
+                    }
+                }
+            }
+            else if (shift)
+            {
+                Clipboard.SetText(string.Join(Environment.NewLine, _m4a_filenames.Select(f => $"\"{f}\"")));
+            }
+            //else if (shift)
+            //{
+            //    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            //    {
+            //        FileName = "openwith.exe",
+            //        Arguments = string.Join(" ", _m4a_filenames.Select(f => $"\"{f}\"")),
+            //        UseShellExecute = true
+            //    });
+            //}
+        }
+        else if (!string.IsNullOrEmpty(_m4a_filename) && File.Exists(_m4a_filename))
+        {
+            if (none)
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -276,7 +302,7 @@ public partial class MainWindow : Window
                     UseShellExecute = true
                 });
             }
-            else if (Keyboard.Modifiers == ModifierKeys.Shift)
+            else if (shift)
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -295,9 +321,57 @@ public partial class MainWindow : Window
     /// <param name="e"></param>
     private async void BtnUpdateMeta_Click(object sender, RoutedEventArgs e)
     {
-        await UpdateMetaAsync(_m4a_filename);
+        _m4a_filenames = _m4a_filenames.Distinct().Where(File.Exists).ToList();
+        await UpdateMetaAsync();
     }
 
+    private async void ProcessingDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            await Task.Run(async () => 
+            {
+                Dispatcher.Invoke(() => { TxtStatus.Text = "正在处理拖放的文件..."; });
+                try
+                {
+                    var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                    if (files.Length > 0)
+                    {
+                        _uc_filenames.Clear();
+                        _m4a_filenames.Clear();
+
+                        var sb = new StringBuilder();
+                        foreach (var file_uc in files)
+                        {
+                            Dispatcher.Invoke(() => TxtSrcPath.Text = file_uc);
+                            var (ret, reason) = await ConvertFileAsync(file_uc);
+                            sb.AppendLine(reason);
+                        }
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            TxtStatus.Text = sb.ToString().TrimEnd();
+                            TxtStatus.ToolTip = TxtStatus.Text;
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        TxtStatus.Text = $"发生错误！{Environment.NewLine}{ex.Message}";
+                        TxtStatus.ToolTip = $"{ex.Message}{Environment.NewLine}{ex.StackTrace}";
+                    });
+                }
+            }); 
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="sId"></param>
+    /// <returns></returns>
     private string GetUCFromCache(int sId)
     {
         var result = string.Empty;
@@ -313,6 +387,11 @@ public partial class MainWindow : Window
         return (result);
     }
 
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
     private string CleanWebLink(string link)
     {
         //https://music.163.com/song?id=5087878&uct2=U2FsdGVkX1+t0HRqsklYooXR1bHa8tZ+WfSZscVNrtk=
@@ -323,6 +402,11 @@ public partial class MainWindow : Window
         return (result);
     }
 
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
     private int GetIdFromWebLink(string link)
     {
         var result = 0;
@@ -344,7 +428,7 @@ public partial class MainWindow : Window
     {
         var result = 0;
         if (string.IsNullOrEmpty(filename)) return (result);
-        var match = Regex.Match(filename, @"^(\d+)-\d+-.*?$", RegexOptions.IgnoreCase);
+        var match = Regex.Match(System.IO.Path.GetFileNameWithoutExtension(filename), @"^(\d+)-\d+-.*?$", RegexOptions.IgnoreCase);
         if (match.Success && int.TryParse(match.Groups[1].Value, out result))
         {
             //result = id;
@@ -479,6 +563,8 @@ public partial class MainWindow : Window
             }
             File.WriteAllBytes(file_m4a, data_in);
             _m4a_filename = file_m4a;
+            _m4a_filenames.Add(file_m4a);
+            _uc_filenames.Add(file_uc);
             result = true;
         }
         catch (IOException e)
@@ -495,17 +581,35 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="file_m4a"></param>
     /// <returns></returns>
-    private async Task<bool> UpdateMetaAsync(string file_m4a, Song? song = null)
+    private async Task<bool> UpdateMetaAsync(string? file_m4a = null, Song? song = null)
     {
         var result = false;
-        if (File.Exists(file_m4a))
+
+        result = await Task.Run(async () =>
         {
-            result = await Task.Run(async () =>
+            var ret = false;
+            if (file_m4a is null || string.IsNullOrEmpty(file_m4a))
             {
-                var ret = await UpdateMeta(file_m4a, song);
-                return (ret);
-            });
-        }
+                foreach (var m4a in _m4a_filenames.ToList())
+                {
+                    if (File.Exists(m4a))
+                    {
+                        var id = GetSongIdFromFileName(m4a);
+                        if (id > 0) ret &= await UpdateMeta(m4a);
+                    }
+                }
+            }
+            else
+            {
+                if (File.Exists(file_m4a))
+                {
+                    var id = GetSongIdFromFileName(file_m4a);
+                    if (id > 0) ret &= await UpdateMeta(file_m4a);
+                }
+            }
+            return (ret);
+        });
+        
         return (result);
     }
 
@@ -580,6 +684,7 @@ public partial class MainWindow : Window
                     var file_m4a_new = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file_m4a) ?? string.Empty, $"{song.ID} - {song.Track:#00}_{song.Title}.m4a");
                     File.Move(file_m4a, file_m4a_new, true);
                     _m4a_filename = file_m4a_new;
+                    _m4a_filenames.Add(file_m4a_new);
                     Dispatcher.Invoke(() => { TxtStatus.Text = "简单更新元数据和文件名称完成"; });
                 }
             }
