@@ -202,14 +202,15 @@
             </Grid.RowDefinitions>
             <Grid Grid.Row="0" Margin="0,0,0,4">
                 <TextBlock Text="转换进度" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
-                <TextBlock x:Name="TxtProgress" Text="0%" Foreground="#CDD6F4" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                <TextBlock x:Name="TxtProgress" Text="0%" Foreground="#CDD6F4" FontSize="12" FontFamily="{StaticResource MonoSpaceFamily}" HorizontalAlignment="Right"/>
             </Grid>
             <ProgressBar Grid.Row="1" x:Name="ProgressBar" Style="{StaticResource ModernProgressBar}" Minimum="0" Maximum="100" Value="0"/>
         </Grid>
 
         <!-- 第五行：转换按钮 -->
-        <Button Grid.Row="4" x:Name="BtnConvert" Content="转换" Style="{StaticResource AccentButton}" MaxWidth="128" Click="BtnConvert_Click"/>
-        <Button Grid.Row="4" x:Name="BtnUpdateMeta" Content="" HorizontalAlignment="Right" Style="{StaticResource AccentButton}" MaxWidth="32" ToolTip="更新元数据及文件名" Click="BtnUpdateMeta_Click"/>
+        <Button Grid.Row="4" x:Name="BtnConvert" Content="转换" Style="{StaticResource AccentButton}" MaxWidth="128" ToolTip="转换文件"  Click="BtnConvert_Click"/>
+        <Button Grid.Row="4" x:Name="BtnUpdateMeta" Content="" HorizontalAlignment="Right" Style="{StaticResource AccentButton}" MaxWidth="48" ToolTip="更新元数据及文件名" Click="BtnUpdateMeta_Click"/>
+        <Button Grid.Row="4" x:Name="BtnPlayM4A" Content="" HorizontalAlignment="Left" Style="{StaticResource AccentButton}" MaxWidth="48" ToolTip="播放文件" Click="BtnPlayM4A_Click"/>
 
         <!-- 第六行：状态提示 -->
         <TextBlock Grid.Row="5" x:Name="TxtStatus" Text="就绪" Foreground="#585B70" FontSize="11" Margin="0,4,0,0"/>

@@ -66,10 +66,10 @@ namespace _163music
 
     public class Artist
     {
-        public string URL;
         public int ID;
-        public string Name;
-        public string AltName;
+        public string? Name;
+        public string? AltName;
+        public string? URL;
     }
 
     public class Song
@@ -120,9 +120,10 @@ namespace _163music
                         using var mso = new MemoryStream();
                         var img = new BitmapImage() { StreamSource = msi };
                         img.BeginInit();
+                        img.CacheOption = BitmapCacheOption.None;
                         img.StreamSource = msi;
                         img.EndInit();
-                        dynamic bmp = size <= 0 ? img : new TransformedBitmap(img, new ScaleTransform(size / img.PixelWidth, size / img.PixelHeight));
+                        BitmapSource bmp = size > 0 && size < img.PixelWidth  && size < img.PixelHeight ? new TransformedBitmap(img, new ScaleTransform(size / img.PixelWidth, size / img.PixelHeight)) : img;
                         BitmapEncoder encoder = new JpegBitmapEncoder();
                         encoder.Frames.Add(BitmapFrame.Create(bmp));
                         encoder.Save(mso);

@@ -264,6 +264,35 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="e"></param>
+    private void BtnPlayM4A_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(_m4a_filename) && File.Exists(_m4a_filename))
+        {
+            if (Keyboard.Modifiers == ModifierKeys.None)
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = _m4a_filename,
+                    UseShellExecute = true
+                });
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.Shift)
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "openwith.exe",
+                    Arguments = _m4a_filename,
+                    UseShellExecute = true
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
     private async void BtnUpdateMeta_Click(object sender, RoutedEventArgs e)
     {
         await UpdateMetaAsync(_m4a_filename);
@@ -550,6 +579,7 @@ public partial class MainWindow : Window
                     }
                     var file_m4a_new = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file_m4a) ?? string.Empty, $"{song.ID} - {song.Track:#00}_{song.Title}.m4a");
                     File.Move(file_m4a, file_m4a_new, true);
+                    _m4a_filename = file_m4a_new;
                     Dispatcher.Invoke(() => { TxtStatus.Text = "简单更新元数据和文件名称完成"; });
                 }
             }
@@ -561,4 +591,5 @@ public partial class MainWindow : Window
 
         return (result);
     }
+
 }
