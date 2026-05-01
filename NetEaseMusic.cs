@@ -115,6 +115,8 @@ namespace _163music
         }
         public string? URL;
 
+        public DateTime? PublishDate => long.TryParse(PubDate, out long date) ? DateTimeOffset.FromUnixTimeMilliseconds(date).LocalDateTime : null;
+
         public async Task<byte[]?> DownloadCover(double size = 600)
         {
             byte[]? data = null;

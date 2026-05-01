@@ -59,9 +59,397 @@ public partial class MainWindow : Window
 
     private CancellationTokenSource? _cancel_convert_ = null;
 
+    private string Default_M4A_Header = string.Empty;
+    private string Default_M4A_Play_Header = string.Empty;
+    private string Default_M4A_Meta_Header = string.Empty;
+
+    #region Helping Routines
+    /// <summary>
+    /// 
+    /// </summary>
+    private bool IsCancelConvert => _cancel_convert_?.IsCancellationRequested ?? false;
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
+    private static string CleanWebLink(string link)
+    {
+        //https://music.163.com/song?id=5087878&uct2=U2FsdGVkX1+t0HRqsklYooXR1bHa8tZ+WfSZscVNrtk=
+
+        var result = link;
+        if (string.IsNullOrEmpty(link)) return (result);
+        result = Regex.Replace(link, @"^(https?://music\.163\.com/)(song|album|playlist)\?(.*?&)?id=\d+)&.*?$", "$1$2?id=$3", RegexOptions.IgnoreCase);
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
+    private static int GetIdFromWebLink(string link)
+    {
+        var result = 0;
+        if (string.IsNullOrEmpty(link)) return (result);
+        var match = Regex.Match(link, @"^(https?://music\.163\.com/(song|album|playlist)\?(.*?&)?id=)?(\d+)(&.*?)?$", RegexOptions.IgnoreCase);
+        if (match.Success && int.TryParse(match.Groups[4].Value, out result))
+        {
+            //result = id;
+        }
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="filename"></param>
+    /// <returns></returns>
+    private static int GetSongIdFromFileName(string filename)
+    {
+        var result = 0;
+        if (string.IsNullOrEmpty(filename)) return (result);
+        var match = Regex.Match(System.IO.Path.GetFileNameWithoutExtension(filename), @"^(\d+)-\d+-.*?$", RegexOptions.IgnoreCase);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out result))
+        {
+            //result = id;
+        }
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private async void ProcessingDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            await Task.Run(async () =>
+            {
+                Dispatcher.Invoke(() => { TxtStatus.Text = "正在处理拖放的文件..."; });
+                try
+                {
+                    var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                    if (files.Length > 0)
+                    {
+                        _uc_filenames.Clear();
+                        _m4a_filenames.Clear();
+
+                        var sb = new StringBuilder();
+                        foreach (var file_uc in files)
+                        {
+                            Dispatcher.Invoke(() => TxtSrcPath.Text = file_uc);
+                            var (ret, reason) = await ConvertFileAsync(file_uc);
+                            sb.AppendLine(reason);
+                        }
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            TxtStatus.Text = sb.ToString().TrimEnd();
+                            TxtStatus.ToolTip = TxtStatus.Text;
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        TxtStatus.Text = $"发生错误！{Environment.NewLine}{ex.Message}";
+                        TxtStatus.ToolTip = $"{ex.Message}{Environment.NewLine}{ex.StackTrace}";
+                    });
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="sId"></param>
+    /// <returns></returns>
+    private string GetUCFromCache(int sId)
+    {
+        var result = string.Empty;
+        if (string.IsNullOrEmpty(_cacheFolder)) return (result);
+        var folder = Environment.ExpandEnvironmentVariables(_cacheFolder);
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return (result);
+
+        var files = Directory.EnumerateFiles(folder, $"{sId}-*-*.uc");
+        if (files.Any())
+        {
+            result = files.FirstOrDefault();
+        }
+        return (result);
+    }
+
+    /// <summary>
+    /// 供外部调用的方法：开始模拟转换
+    /// </summary>
+    public void StartConvert()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            ProgressBar.Value = 0;
+            TxtProgress.Text = "0%";
+            TxtStatus.Text = "正在转换...";
+            TxtStatus.Foreground = COLOR_PROCESSING;
+            _progressTimer.Start();
+        });
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="reason"></param>
+    public void StopConvert(string reason = "")
+    {
+        _cancel_convert_?.Cancel();
+        Dispatcher.Invoke(() =>
+        {
+            ProgressBar.Value = _progressValue;
+            TxtProgress.Text = $"{_progressValue:F0}%";
+            if (!string.IsNullOrEmpty(reason))
+            {
+                TxtStatus.Text = reason;
+                TxtStatus.Foreground = COLOR_ERROR;
+                TxtStatus.ToolTip = TxtStatus.Text;
+            }
+        });
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="file_uc"></param>
+    /// <param name="reason"></param>
+    /// <returns></returns>
+    private bool ConvertFile(string file_uc, out string reason)
+    {
+        var result = false;
+        reason = string.Empty;
+        _m4a_filename = string.Empty;
+
+        if (!File.Exists(file_uc))
+        {
+            reason = $"错误，您所访问的文件不存在或您无权访问该文件！{Environment.NewLine}请检查文件路径拼写是否有误 (文件路径的开头和结尾不能包含引号)";
+            return (result);
+        }
+
+        var ext = System.IO.Path.GetExtension(file_uc).ToLower();
+        if (!ext.Equals(".uc"))
+        {
+            reason = $"错误，文件名必须以[.uc]结尾！";
+            return (result);
+        }
+
+        var targetFolder = string.IsNullOrEmpty(_saveFolderPath) ? System.IO.Path.GetDirectoryName(file_uc) : _saveFolderPath;
+        var targetFileName = System.IO.Path.GetFileNameWithoutExtension(file_uc) + ".m4a";
+        if (string.IsNullOrEmpty(targetFolder)) targetFolder = System.IO.Path.GetDirectoryName(file_uc);
+
+        reason = "您要转换的文件是：" + file_uc;
+        var file_m4a = string.IsNullOrEmpty(targetFolder) ? targetFileName : System.IO.Path.Combine(targetFolder, targetFileName);
+        try
+        {
+            if (IsCancelConvert)
+            {
+                reason = "转换已取消！";
+                return (result);
+            }
+
+            StartConvert();
+
+            _progressValue = 0;
+
+            byte[] data_in = File.ReadAllBytes(file_uc);
+            for (int i = 0; i < data_in.Length; i++)
+            {
+                data_in[i] ^= 0xa3;
+                _progressValue = (int)Math.Ceiling(i / (double)data_in.Length * 100.0);
+
+                if (IsCancelConvert)
+                {
+                    reason = "转换已取消！";
+                    break;
+                }
+            }
+
+            if (IsCancelConvert)
+            {
+                reason = "转换已取消！";
+                return (result);
+            }
+            File.WriteAllBytes(file_m4a, data_in);
+            _m4a_filename = file_m4a;
+            _m4a_filenames.Add(file_m4a);
+            _uc_filenames.Add(file_uc);
+            result = true;
+        }
+        catch (IOException e)
+        {
+            reason = $"非法操作{Environment.NewLine}{e.StackTrace}";
+            StopConvert(reason);
+        }
+        finally { }
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="file_uc"></param>
+    /// <returns></returns>
+    private async Task<(bool, string)> ConvertFileAsync(string file_uc)
+    {
+        var result = false;
+        var reason = string.Empty;
+
+        _cancel_convert_?.Cancel();
+        await Task.Delay(250); // 等待之前的转换任务取消完成
+
+        (result, reason) = await Task.Run(() =>
+        {
+            _cancel_convert_ = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var ret = ConvertFile(file_uc, out string reason);
+            return (ret, reason);
+        });
+
+        await Dispatcher.InvokeAsync(() => { TxtStatus.Text = reason; });
+        return (result, reason);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="file_m4a"></param>
+    /// <returns></returns>
+    private async Task<bool> UpdateMeta(string file_m4a, Song? song = null)
+    {
+        var result = false;
+
+        if (File.Exists(file_m4a))
+        {
+            try
+            {
+                // 32098510-320-41ba35bdfb1d9199a27f4c32e85872dd
+                if (song is null && int.TryParse(Regex.Replace(System.IO.Path.GetFileNameWithoutExtension(file_m4a), @"^(\d+)-\d+-.*?$", "$1", RegexOptions.IgnoreCase), out int id))
+                {
+                    var site = new NetEaseMusic();
+                    song = await site.GetSongDetail(id);
+                }
+                if (song != null)
+                {
+                    // var m4a_file = m4a_meta.GetFileAs<TagLibSharp2.Mp4.Mp4File>();
+                    //var m4a_file = await TagLibSharp2.Mp4.Mp4File.ReadFromFileAsync(file_m4a);
+                    //if (m4a_file.IsSuccess && m4a_file.File?.Tag is not null)
+                    //{
+                    //    var m4a_meta = m4a_file.File;
+                    //    m4a_meta.Tag.Title = song.Title;
+                    //    m4a_meta.Tag.Subtitle = song.Alias;
+                    //    m4a_meta.Tag.PodcastFeedUrl = song.URL;
+                    //    m4a_meta.Tag.Track = (uint)song.Track;
+                    //    m4a_meta.Tag.Artist = string.Join(" ; ", song.Artists.Select(a => a.Name)) + ";";
+                    //    m4a_meta.Tag.Album = song.Album?.Title;
+                    //    m4a_meta.Tag.AlbumArtists = [song.Album?.Artist];
+                    //    m4a_meta.Tag.DiscSubtitle = song.Album?.Subtitle;
+                    //    if (!string.IsNullOrEmpty(song.Album?.Cover))
+                    //    {
+                    //        var data = await song.Album.DownloadCover();
+                    //        if (data is not null)
+                    //        {
+                    //            m4a_meta.Tag.Pictures = [new Mp4Picture(data, true)];
+                    //        }
+                    //    }
+                    //    var m4a_result = await m4a_file.File?.SaveToFileAsync(file_m4a);
+                    //    result = m4a_result.IsSuccess;
+                    //}
+
+                    using var m4a = TagLib.Mpeg4.File.Create(file_m4a);
+                    if (m4a != null)
+                    {
+                        m4a.Tag.Title = song.Title;
+                        m4a.Tag.TitleSort = song.Alias;
+                        //m4a.Tag. = song.URL;
+                        m4a.Tag.Comment = song.URL;
+                        m4a.Tag.Track = (uint)song.Track;
+                        m4a.Tag.Performers = [.. song.Artists.Select(a => a.Name)];
+                        m4a.Tag.Album = song.Album?.Title;
+                        m4a.Tag.AlbumArtists = [song.Album?.Artist];
+                        m4a.Tag.AlbumSort = song.Album?.Subtitle;
+                        m4a.Tag.Year = (uint)Math.Max(1, Math.Min(9999, song.Album?.PublishDate?.Year ?? DateTime.Now.Year));
+                        if (!string.IsNullOrEmpty(song.Album?.Cover))
+                        {
+                            var data = await song.Album.DownloadCover();
+                            if (data is not null)
+                            {
+                                m4a.Tag.Pictures = [new TagLib.Picture(data)];
+                            }
+                        }
+                        m4a.Save();
+                    }
+                    var file_m4a_new = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file_m4a) ?? string.Empty, $"{song.ID} - {song.Track:#00}_{song.Title}.m4a");
+                    File.Move(file_m4a, file_m4a_new, true);
+                    _m4a_filename = file_m4a_new;
+                    _m4a_filenames.Add(file_m4a_new);
+                    Dispatcher.Invoke(() => { TxtStatus.Text = "简单更新元数据和文件名称完成"; });
+                }
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show($"更新元数据失败！{Environment.NewLine}{e.StackTrace}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="file_m4a"></param>
+    /// <returns></returns>
+    private async Task<bool> UpdateMetaAsync(string? file_m4a = null, Song? song = null)
+    {
+        var result = false;
+
+        result = await Task.Run(async () =>
+        {
+            var ret = false;
+            if (file_m4a is null || string.IsNullOrEmpty(file_m4a))
+            {
+                foreach (var m4a in _m4a_filenames.ToList())
+                {
+                    if (File.Exists(m4a))
+                    {
+                        var id = GetSongIdFromFileName(m4a);
+                        if (id > 0) ret &= await UpdateMeta(m4a);
+                    }
+                }
+            }
+            else
+            {
+                if (File.Exists(file_m4a))
+                {
+                    var id = GetSongIdFromFileName(file_m4a);
+                    if (id > 0) ret &= await UpdateMeta(file_m4a);
+                }
+            }
+            return (ret);
+        });
+
+        return (result);
+    }
+    #endregion
+
     public MainWindow()
     {
         InitializeComponent();
+
+        Default_M4A_Header = (string)BtnConvert.Content;
+        Default_M4A_Play_Header = (string)BtnPlayM4A.Content;
+        Default_M4A_Meta_Header = (string)BtnUpdateMeta.Content;
 
         _uc_filenames ??= [];
         _m4a_filenames ??= [];
@@ -91,6 +479,39 @@ public partial class MainWindow : Window
         };
 
         Drop += ProcessingDrop;
+    }
+
+    /// <summary>
+    /// 模拟进度更新（实际使用时替换为真实的转换逻辑）
+    /// </summary>
+    private void ProgressTimer_Tick(object sender, EventArgs e)
+    {
+        if (ProgressBar.Value >= 100)
+        {
+            _progressTimer.Stop();
+            TxtStatus.Text = "转换完成！";
+            TxtStatus.Foreground = COLOR_SUCCESS;
+            return;
+        }
+        else if (IsCancelConvert)
+        {
+            _progressTimer.Stop();
+            return;
+        }
+
+        if (_progressValue > ProgressBar.Value)
+        {
+            ProgressBar.Value = _progressValue;
+            TxtProgress.Text = $"{_progressValue:F0}%";
+        }
+
+        // 根据进度更新状态
+        if (ProgressBar.Value < 10)
+            TxtStatus.Text = "正在读取文件...";
+        else if (ProgressBar.Value < 90)
+            TxtStatus.Text = "正在转换编码...";
+        else if (ProgressBar.Value < 100)
+            TxtStatus.Text = "正在写入文件...";
     }
 
     /// <summary>
@@ -168,36 +589,66 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 模拟进度更新（实际使用时替换为真实的转换逻辑）
+    /// 
     /// </summary>
-    private void ProgressTimer_Tick(object sender, EventArgs e)
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private void BtnPlayM4A_Click(object sender, RoutedEventArgs e)
     {
-        if (ProgressBar.Value >= 100)
-        {
-            _progressTimer.Stop();
-            TxtStatus.Text = "转换完成！";
-            TxtStatus.Foreground = COLOR_SUCCESS;
-            return;
-        }
-        else if (IsCancelConvert)
-        {
-            _progressTimer.Stop();
-            return;
-        }
+        var shift = Keyboard.Modifiers == ModifierKeys.Shift;
+        var none = Keyboard.Modifiers == ModifierKeys.None;
 
-        if (_progressValue > ProgressBar.Value)
+        _m4a_filenames = [.. _m4a_filenames.Distinct().Where(File.Exists)];
+        if (_m4a_filenames.Count > 0 && _m4a_filenames.Count <= 10)
         {
-            ProgressBar.Value = _progressValue;
-            TxtProgress.Text = $"{_progressValue:F0}%";
+            if (none)
+            {
+                foreach (var m4a in _m4a_filenames)
+                {
+                    if (File.Exists(m4a))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = m4a,
+                            UseShellExecute = true
+                        });
+                    }
+                }
+            }
+            else if (shift)
+            {
+                Clipboard.SetText(string.Join(Environment.NewLine, _m4a_filenames.Select(f => $"\"{f}\"")));
+            }
+            //else if (shift)
+            //{
+            //    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            //    {
+            //        FileName = "openwith.exe",
+            //        Arguments = string.Join(" ", _m4a_filenames.Select(f => $"\"{f}\"")),
+            //        UseShellExecute = true
+            //    });
+            //}
         }
-
-        // 根据进度更新状态
-        if (ProgressBar.Value < 10)
-            TxtStatus.Text = "正在读取文件...";
-        else if (ProgressBar.Value < 90)
-            TxtStatus.Text = "正在转换编码...";
-        else if (ProgressBar.Value < 100)
-            TxtStatus.Text = "正在写入文件...";
+        else if (!string.IsNullOrEmpty(_m4a_filename) && File.Exists(_m4a_filename))
+        {
+            if (none)
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = _m4a_filename,
+                    UseShellExecute = true
+                });
+            }
+            else if (shift)
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "openwith.exe",
+                    Arguments = _m4a_filename,
+                    UseShellExecute = true
+                });
+            }
+        }
     }
 
     /// <summary>
@@ -264,445 +715,10 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="e"></param>
-    private void BtnPlayM4A_Click(object sender, RoutedEventArgs e)
-    {
-        var shift = Keyboard.Modifiers == ModifierKeys.Shift;
-        var none = Keyboard.Modifiers == ModifierKeys.None;
-
-        _m4a_filenames = [.. _m4a_filenames.Distinct().Where(File.Exists)];
-        if (_m4a_filenames.Count > 0 && _m4a_filenames.Count <= 10)
-        {
-            if (none)
-            {
-                foreach (var m4a in _m4a_filenames)
-                {
-                    if (File.Exists(m4a))
-                    {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = m4a,
-                            UseShellExecute = true
-                        });
-                    }
-                }
-            }
-            else if (shift)
-            {
-                Clipboard.SetText(string.Join(Environment.NewLine, _m4a_filenames.Select(f => $"\"{f}\"")));
-            }
-            //else if (shift)
-            //{
-            //    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            //    {
-            //        FileName = "openwith.exe",
-            //        Arguments = string.Join(" ", _m4a_filenames.Select(f => $"\"{f}\"")),
-            //        UseShellExecute = true
-            //    });
-            //}
-        }
-        else if (!string.IsNullOrEmpty(_m4a_filename) && File.Exists(_m4a_filename))
-        {
-            if (none)
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = _m4a_filename,
-                    UseShellExecute = true
-                });
-            }
-            else if (shift)
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "openwith.exe",
-                    Arguments = _m4a_filename,
-                    UseShellExecute = true
-                });
-            }
-        }
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
     private async void BtnUpdateMeta_Click(object sender, RoutedEventArgs e)
     {
         _m4a_filenames = [.. _m4a_filenames.Distinct().Where(File.Exists)];
         await UpdateMetaAsync();
-    }
-
-    private async void ProcessingDrop(object sender, DragEventArgs e)
-    {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop))
-        {
-            await Task.Run(async () => 
-            {
-                Dispatcher.Invoke(() => { TxtStatus.Text = "正在处理拖放的文件..."; });
-                try
-                {
-                    var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                    if (files.Length > 0)
-                    {
-                        _uc_filenames.Clear();
-                        _m4a_filenames.Clear();
-
-                        var sb = new StringBuilder();
-                        foreach (var file_uc in files)
-                        {
-                            Dispatcher.Invoke(() => TxtSrcPath.Text = file_uc);
-                            var (ret, reason) = await ConvertFileAsync(file_uc);
-                            sb.AppendLine(reason);
-                        }
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            TxtStatus.Text = sb.ToString().TrimEnd();
-                            TxtStatus.ToolTip = TxtStatus.Text;
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        TxtStatus.Text = $"发生错误！{Environment.NewLine}{ex.Message}";
-                        TxtStatus.ToolTip = $"{ex.Message}{Environment.NewLine}{ex.StackTrace}";
-                    });
-                }
-            }); 
-        }
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="sId"></param>
-    /// <returns></returns>
-    private string GetUCFromCache(int sId)
-    {
-        var result = string.Empty;
-        if (string.IsNullOrEmpty(_cacheFolder)) return (result);
-        var folder = Environment.ExpandEnvironmentVariables(_cacheFolder);
-        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return (result);
-
-        var files = Directory.EnumerateFiles(folder, $"{sId}-*-*.uc");
-        if (files.Any())
-        {
-            result = files.FirstOrDefault();
-        }
-        return (result);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="link"></param>
-    /// <returns></returns>
-    private static string CleanWebLink(string link)
-    {
-        //https://music.163.com/song?id=5087878&uct2=U2FsdGVkX1+t0HRqsklYooXR1bHa8tZ+WfSZscVNrtk=
-
-        var result = link;
-        if (string.IsNullOrEmpty(link)) return (result);
-        result = Regex.Replace(link, @"^(https?://music\.163\.com/)(song|album|playlist)\?(.*?&)?id=\d+)&.*?$", "$1$2?id=$3", RegexOptions.IgnoreCase);
-        return (result);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="link"></param>
-    /// <returns></returns>
-    private static int GetIdFromWebLink(string link)
-    {
-        var result = 0;
-        if (string.IsNullOrEmpty(link)) return (result);
-        var match = Regex.Match(link, @"^(https?://music\.163\.com/(song|album|playlist)\?(.*?&)?id=)?(\d+)(&.*?)?$", RegexOptions.IgnoreCase);
-        if (match.Success && int.TryParse(match.Groups[4].Value, out result))
-        {
-            //result = id;
-        }
-        return (result);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="filename"></param>
-    /// <returns></returns>
-    private static int GetSongIdFromFileName(string filename)
-    {
-        var result = 0;
-        if (string.IsNullOrEmpty(filename)) return (result);
-        var match = Regex.Match(System.IO.Path.GetFileNameWithoutExtension(filename), @"^(\d+)-\d+-.*?$", RegexOptions.IgnoreCase);
-        if (match.Success && int.TryParse(match.Groups[1].Value, out result))
-        {
-            //result = id;
-        }
-        return (result);
-    }
-
-    /// <summary>
-    /// 供外部调用的方法：开始模拟转换
-    /// </summary>
-    public void StartConvert()
-    {
-        Dispatcher.Invoke(() =>
-        {
-            ProgressBar.Value = 0;
-            TxtProgress.Text = "0%";
-            TxtStatus.Text = "正在转换...";
-            TxtStatus.Foreground = COLOR_PROCESSING;
-            _progressTimer.Start();
-        });
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="reason"></param>
-    public void StopConvert(string reason = "")
-    {
-        _cancel_convert_?.Cancel();
-        Dispatcher.Invoke(() => 
-        {
-            ProgressBar.Value = _progressValue;
-            TxtProgress.Text = $"{_progressValue:F0}%";
-            if (!string.IsNullOrEmpty(reason))
-            {
-                TxtStatus.Text = reason;
-                TxtStatus.Foreground = COLOR_ERROR;
-                TxtStatus.ToolTip = TxtStatus.Text;
-            }
-        });
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    private bool IsCancelConvert => _cancel_convert_?.IsCancellationRequested ?? false;
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="file_uc"></param>
-    /// <returns></returns>
-    private async Task<(bool, string)> ConvertFileAsync(string file_uc)
-    {
-        var result = false;
-        var reason = string.Empty;
-
-        _cancel_convert_?.Cancel();
-        await Task.Delay(250); // 等待之前的转换任务取消完成
-
-        (result, reason) = await Task.Run(() =>
-        {
-            _cancel_convert_ = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var ret = ConvertFile(file_uc, out string reason);
-            return (ret, reason);
-        });
-
-        await Dispatcher.InvokeAsync(() => { TxtStatus.Text = reason; });
-        return (result, reason);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="file_uc"></param>
-    /// <param name="reason"></param>
-    /// <returns></returns>
-    private bool ConvertFile(string file_uc, out string reason)
-    {
-        var result = false;
-        reason = string.Empty;
-        _m4a_filename = string.Empty;
-
-        if (!File.Exists(file_uc))
-        {
-            reason = $"错误，您所访问的文件不存在或您无权访问该文件！{Environment.NewLine}请检查文件路径拼写是否有误 (文件路径的开头和结尾不能包含引号)";
-            return (result);
-        }
-
-        var ext = System.IO.Path.GetExtension(file_uc).ToLower();
-        if (!ext.Equals(".uc"))
-        {
-            reason = $"错误，文件名必须以[.uc]结尾！";
-            return (result);
-        }
-
-        var targetFolder = string.IsNullOrEmpty(_saveFolderPath) ? System.IO.Path.GetDirectoryName(file_uc) : _saveFolderPath;
-        var targetFileName = System.IO.Path.GetFileNameWithoutExtension(file_uc) + ".m4a";
-        if (string.IsNullOrEmpty(targetFolder)) targetFolder = System.IO.Path.GetDirectoryName(file_uc);
-
-        reason = "您要转换的文件是：" + file_uc;
-        var file_m4a = string.IsNullOrEmpty(targetFolder) ? targetFileName : System.IO.Path.Combine(targetFolder, targetFileName);
-        try
-        {
-            if (IsCancelConvert)
-            {
-                reason = "转换已取消！";
-                return (result);
-            }
-
-            StartConvert();
-
-            _progressValue = 0;
-
-            byte[] data_in = File.ReadAllBytes(file_uc);
-            for (int i = 0; i < data_in.Length; i++)
-            {
-                data_in[i] ^= 0xa3;
-                _progressValue = (int)Math.Ceiling(i / (double)data_in.Length * 100.0);
-
-                if (IsCancelConvert)
-                {
-                    reason = "转换已取消！";
-                    break;
-                }
-            }
-
-            if (IsCancelConvert)
-            {
-                reason = "转换已取消！";
-                return (result);
-            }
-            File.WriteAllBytes(file_m4a, data_in);
-            _m4a_filename = file_m4a;
-            _m4a_filenames.Add(file_m4a);
-            _uc_filenames.Add(file_uc);
-            result = true;
-        }
-        catch (IOException e)
-        {
-            reason = $"非法操作{Environment.NewLine}{e.StackTrace}";
-            StopConvert(reason);
-        }
-        finally {  }
-        return (result);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="file_m4a"></param>
-    /// <returns></returns>
-    private async Task<bool> UpdateMetaAsync(string? file_m4a = null, Song? song = null)
-    {
-        var result = false;
-
-        result = await Task.Run(async () =>
-        {
-            var ret = false;
-            if (file_m4a is null || string.IsNullOrEmpty(file_m4a))
-            {
-                foreach (var m4a in _m4a_filenames.ToList())
-                {
-                    if (File.Exists(m4a))
-                    {
-                        var id = GetSongIdFromFileName(m4a);
-                        if (id > 0) ret &= await UpdateMeta(m4a);
-                    }
-                }
-            }
-            else
-            {
-                if (File.Exists(file_m4a))
-                {
-                    var id = GetSongIdFromFileName(file_m4a);
-                    if (id > 0) ret &= await UpdateMeta(file_m4a);
-                }
-            }
-            return (ret);
-        });
-        
-        return (result);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="file_m4a"></param>
-    /// <returns></returns>
-    private async Task<bool> UpdateMeta(string file_m4a, Song? song = null)
-    {
-        var result = false;
-
-        if (File.Exists(file_m4a))
-        {
-            try
-            {
-                // 32098510-320-41ba35bdfb1d9199a27f4c32e85872dd
-                if (song is null && int.TryParse(Regex.Replace(System.IO.Path.GetFileNameWithoutExtension(file_m4a), @"^(\d+)-\d+-.*?$", "$1", RegexOptions.IgnoreCase), out int id))
-                {
-                    var site = new NetEaseMusic();
-                    song = await site.GetSongDetail(id);
-                }
-                if (song != null)
-                {
-                    // var m4a_file = m4a_meta.GetFileAs<TagLibSharp2.Mp4.Mp4File>();
-                    //var m4a_file = await TagLibSharp2.Mp4.Mp4File.ReadFromFileAsync(file_m4a);
-                    //if (m4a_file.IsSuccess && m4a_file.File?.Tag is not null)
-                    //{
-                    //    var m4a_meta = m4a_file.File;
-                    //    m4a_meta.Tag.Title = song.Title;
-                    //    m4a_meta.Tag.Subtitle = song.Alias;
-                    //    m4a_meta.Tag.PodcastFeedUrl = song.URL;
-                    //    m4a_meta.Tag.Track = (uint)song.Track;
-                    //    m4a_meta.Tag.Artist = string.Join(" ; ", song.Artists.Select(a => a.Name)) + ";";
-                    //    m4a_meta.Tag.Album = song.Album?.Title;
-                    //    m4a_meta.Tag.AlbumArtists = [song.Album?.Artist];
-                    //    m4a_meta.Tag.DiscSubtitle = song.Album?.Subtitle;
-                    //    if (!string.IsNullOrEmpty(song.Album?.Cover))
-                    //    {
-                    //        var data = await song.Album.DownloadCover();
-                    //        if (data is not null)
-                    //        {
-                    //            m4a_meta.Tag.Pictures = [new Mp4Picture(data, true)];
-                    //        }
-                    //    }
-                    //    var m4a_result = await m4a_file.File?.SaveToFileAsync(file_m4a);
-                    //    result = m4a_result.IsSuccess;
-                    //}
-
-                    using var m4a = TagLib.Mpeg4.File.Create(file_m4a);
-                    if (m4a != null)
-                    {
-                        m4a.Tag.Title = song.Title;
-                        m4a.Tag.TitleSort = song.Alias;
-                        //m4a.Tag. = song.URL;
-                        m4a.Tag.Comment = song.URL;
-                        m4a.Tag.Track = (uint)song.Track;
-                        m4a.Tag.Performers = [.. song.Artists.Select(a => a.Name)];
-                        m4a.Tag.Album = song.Album?.Title;
-                        m4a.Tag.AlbumArtists = [song.Album?.Artist];
-                        m4a.Tag.AlbumSort = song.Album?.Subtitle;
-                        if (!string.IsNullOrEmpty(song.Album?.Cover))
-                        {
-                            var data = await song.Album.DownloadCover();
-                            if (data is not null)
-                            {
-                                m4a.Tag.Pictures = [new TagLib.Picture(data)];
-                            }
-                        }
-                        m4a.Save();
-                    }
-                    var file_m4a_new = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file_m4a) ?? string.Empty, $"{song.ID} - {song.Track:#00}_{song.Title}.m4a");
-                    File.Move(file_m4a, file_m4a_new, true);
-                    _m4a_filename = file_m4a_new;
-                    _m4a_filenames.Add(file_m4a_new);
-                    Dispatcher.Invoke(() => { TxtStatus.Text = "简单更新元数据和文件名称完成"; });
-                }
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show($"更新元数据失败！{Environment.NewLine}{e.StackTrace}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        return (result);
     }
 
 }
