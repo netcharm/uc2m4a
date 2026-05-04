@@ -62,6 +62,7 @@ public partial class MainWindow : Window
     private string Default_M4A_Header = string.Empty;
     private string Default_M4A_Play_Header = string.Empty;
     private string Default_M4A_Meta_Header = string.Empty;
+    private string Default_Src_Text = string.Empty;
 
     #region Helping Routines
     /// <summary>
@@ -226,23 +227,23 @@ public partial class MainWindow : Window
     /// <param name="file_uc"></param>
     /// <param name="reason"></param>
     /// <returns></returns>
-    private bool ConvertFile(string file_uc, out string reason)
+    private async Task<(bool, string)> ConvertFile(string file_uc)
     {
         var result = false;
-        reason = string.Empty;
+        var reason = string.Empty;
         _m4a_filename = string.Empty;
 
         if (!File.Exists(file_uc))
         {
             reason = $"错误，您所访问的文件不存在或您无权访问该文件！{Environment.NewLine}请检查文件路径拼写是否有误 (文件路径的开头和结尾不能包含引号)";
-            return (result);
+            return (result, reason);
         }
 
         var ext = System.IO.Path.GetExtension(file_uc).ToLower();
         if (!ext.Equals(".uc"))
         {
             reason = $"错误，文件名必须以[.uc]结尾！";
-            return (result);
+            return (result, reason);
         }
 
         var targetFolder = string.IsNullOrEmpty(_saveFolderPath) ? System.IO.Path.GetDirectoryName(file_uc) : _saveFolderPath;
@@ -256,44 +257,49 @@ public partial class MainWindow : Window
             if (IsCancelConvert)
             {
                 reason = "转换已取消！";
-                return (result);
+                return (result, reason);
             }
 
             StartConvert();
 
             _progressValue = 0;
 
-            byte[] data_in = File.ReadAllBytes(file_uc);
-            for (int i = 0; i < data_in.Length; i++)
+            using FileStream fs = File.Open(file_uc, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            byte[] data_in = new byte[fs.Length];
+            if ( fs.Length == await fs.ReadAsync(data_in.AsMemory(0, (int)fs.Length), _cancel_convert_?.Token ?? new CancellationToken()))
             {
-                data_in[i] ^= 0xa3;
-                _progressValue = (int)Math.Ceiling(i / (double)data_in.Length * 100.0);
+                // 读取完成
+                for (int i = 0; i < data_in.Length; i++)
+                {
+                    data_in[i] ^= 0xA3;
+                    _progressValue = (int)Math.Ceiling(i / (double)data_in.Length * 100.0);
+
+                    if (IsCancelConvert)
+                    {
+                        reason = "转换已取消！";
+                        break;
+                    }
+                }
 
                 if (IsCancelConvert)
                 {
                     reason = "转换已取消！";
-                    break;
+                    return (result, reason);
                 }
+                File.WriteAllBytes(file_m4a, data_in);
+                _m4a_filename = file_m4a;
+                _m4a_filenames.Add(file_m4a);
+                _uc_filenames.Add(file_uc);
+                result = true;
             }
-
-            if (IsCancelConvert)
-            {
-                reason = "转换已取消！";
-                return (result);
-            }
-            File.WriteAllBytes(file_m4a, data_in);
-            _m4a_filename = file_m4a;
-            _m4a_filenames.Add(file_m4a);
-            _uc_filenames.Add(file_uc);
-            result = true;
         }
         catch (IOException e)
         {
             reason = $"非法操作{Environment.NewLine}{e.StackTrace}";
             StopConvert(reason);
         }
-        finally { }
-        return (result);
+        finally { GC.Collect(); }
+        return (result, reason);
     }
 
     /// <summary>
@@ -309,11 +315,13 @@ public partial class MainWindow : Window
         _cancel_convert_?.Cancel();
         await Task.Delay(250); // 等待之前的转换任务取消完成
 
-        (result, reason) = await Task.Run(() =>
+        (result, reason) = await Task.Run(async () =>
         {
+            var ret = false;
+            var res = string.Empty;
             _cancel_convert_ = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var ret = ConvertFile(file_uc, out string reason);
-            return (ret, reason);
+            (ret, res) = await ConvertFile(file_uc);
+            return (ret, res);
         });
 
         await Dispatcher.InvokeAsync(() => { TxtStatus.Text = reason; });
@@ -450,6 +458,7 @@ public partial class MainWindow : Window
         Default_M4A_Header = (string)BtnConvert.Content;
         Default_M4A_Play_Header = (string)BtnPlayM4A.Content;
         Default_M4A_Meta_Header = (string)BtnUpdateMeta.Content;
+        Default_Src_Text = TxtSrcPath.Text;
 
         _uc_filenames ??= [];
         _m4a_filenames ??= [];
@@ -471,11 +480,9 @@ public partial class MainWindow : Window
         }
 
         TxtSrcPath.AutoWordSelection = true;
-        TxtSrcPath.GotFocus += (sender, e) =>
+        TxtSrcPath.GotKeyboardFocus += (sender, e) =>
         {
-            TxtSrcPath.SelectionStart = 0;
-            TxtSrcPath.SelectionLength = TxtSrcPath.Text.Length;
-            TxtSrcPath.SelectAll();
+            if (TxtSrcPath.Text.Equals(Default_Src_Text)) TxtSrcPath.Text = string.Empty;
         };
 
         Drop += ProcessingDrop;

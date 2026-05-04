@@ -134,9 +134,11 @@ namespace _163music
                         img.CacheOption = BitmapCacheOption.None;
                         img.StreamSource = msi;
                         img.EndInit();
-                        BitmapSource bmp = size > 0 && size < img.PixelWidth  && size < img.PixelHeight ? new TransformedBitmap(img, new ScaleTransform(size / img.PixelWidth, size / img.PixelHeight)) : img;
-                        BitmapEncoder encoder = new JpegBitmapEncoder() { QualityLevel = 75, Metadata = new BitmapMetadata("jpg") { Title = Title, Subject = Subtitle, Comment = (Intro + Environment.NewLine + URL).Trim() } };
-                        encoder.Frames.Add(BitmapFrame.Create(bmp));
+                        BitmapMetadata meta = new BitmapMetadata("jpg") { Title = Title ?? string.Empty, Subject = Subtitle ?? string.Empty, Comment = (Intro + Environment.NewLine + URL).Trim() };
+                        BitmapSource bmp = size > 0 && size < img.PixelWidth && size < img.PixelHeight ? new TransformedBitmap(img, new ScaleTransform(size / img.PixelWidth, size / img.PixelHeight)) : img;
+                        //BitmapEncoder encoder = new JpegBitmapEncoder() { QualityLevel = 75, Metadata = meta };
+                        BitmapEncoder encoder = new JpegBitmapEncoder() { QualityLevel = 75 };
+                        encoder.Frames.Add(BitmapFrame.Create(bmp, thumbnail: null, metadata: meta, colorContexts: null));
                         encoder.Save(mso);
                         data = mso.ToArray();
                         bytes = null;
