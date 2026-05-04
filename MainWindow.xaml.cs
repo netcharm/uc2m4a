@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel;
+using System.Diagnostics.Contracts;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.ConstrainedExecution;
@@ -44,6 +45,7 @@ public partial class MainWindow : Window
         DefaultFolder = 0,
         CustomFolder = 1
     }
+    
     private SaveType _saveType = SaveType.DefaultFolder;
     private string _cacheFolder = "%LOCALAPPDATA%\\NetEase\\CloudMusic\\Cache\\Cache"; // "\NetEase\CloudMusic\Cache\Cache\3368793123-320-decf7cd0a74c6a97703663018dcb0335.uc"
     private string _saveFolderPath = string.Empty;
@@ -81,7 +83,49 @@ public partial class MainWindow : Window
 
         var result = link;
         if (string.IsNullOrEmpty(link)) return (result);
-        result = Regex.Replace(link, @"^(https?://music\.163\.com/)(song|album|playlist)\?(.*?&)?id=\d+)&.*?$", "$1$2?id=$3", RegexOptions.IgnoreCase);
+        result = Regex.Replace(link, @"^(https?://music\.163\.com/)(song|album|playlist)\?(.*?&)?id=(\d+)&.*?$", "$1$2?id=$4", RegexOptions.IgnoreCase);
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
+    private static bool IsSong(string link)
+    {
+        var result = false;
+        if (string.IsNullOrEmpty(link)) return (result);
+        var match = Regex.Match(link, @"^(https?://music\.163\.com/)(song)\?(.*?&)?id=\d+(&.*?)?$", RegexOptions.IgnoreCase);
+        result = match?.Success ?? false;
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
+    private static bool IsAlbum(string link)
+    {
+        var result = false;
+        if (string.IsNullOrEmpty(link)) return (result);
+        var match = Regex.Match(link, @"^(https?://music\.163\.com/)(album)\?(.*?&)?id=\d+(&.*?)?$", RegexOptions.IgnoreCase);
+        result = match?.Success ?? false;
+        return (result);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="link"></param>
+    /// <returns></returns>
+    private static bool IsPlaylist(string link)
+    {
+        var result = false;
+        if (string.IsNullOrEmpty(link)) return (result);
+        var match = Regex.Match(link, @"^(https?://music\.163\.com/)(playlist)\?(.*?&)?id=\d+(&.*?)?$", RegexOptions.IgnoreCase);
+        result = match?.Success ?? false;
         return (result);
     }
 
@@ -136,22 +180,7 @@ public partial class MainWindow : Window
                     var files = (string[])e.Data.GetData(DataFormats.FileDrop);
                     if (files.Length > 0)
                     {
-                        _uc_filenames.Clear();
-                        _m4a_filenames.Clear();
-
-                        var sb = new StringBuilder();
-                        foreach (var file_uc in files)
-                        {
-                            Dispatcher.Invoke(() => TxtSrcPath.Text = file_uc);
-                            var (ret, reason) = await ConvertFileAsync(file_uc);
-                            sb.AppendLine(reason);
-                        }
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            TxtStatus.Text = sb.ToString().TrimEnd();
-                            TxtStatus.ToolTip = TxtStatus.Text;
-                        });
+                        await ConvertFile(files);
                     }
                 }
                 catch (Exception ex)
@@ -171,7 +200,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="sId"></param>
     /// <returns></returns>
-    private string GetUCFromCache(int sId)
+    private string? GetUCFromCache(int sId)
     {
         var result = string.Empty;
         if (string.IsNullOrEmpty(_cacheFolder)) return (result);
@@ -219,6 +248,85 @@ public partial class MainWindow : Window
                 TxtStatus.ToolTip = TxtStatus.Text;
             }
         });
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="song"></param>
+    public async void ProcessingSong(Song? song)
+    {
+        if (song != null)
+        {
+            TxtStatus.Text = $"已识别链接，歌曲名称：{song.Title}，正在下载...";
+            // 下载并转换
+            var uc_file = GetUCFromCache(song.ID);
+            if (!string.IsNullOrEmpty(uc_file) && File.Exists(uc_file))
+            {
+                TxtSrcPath.Text = uc_file;
+                var (ret, reason) = await ConvertFileAsync(uc_file);
+                if (ret)
+                {
+                    await UpdateMetaAsync(_m4a_filename, song);
+                }
+                else
+                {
+                    TxtStatus.Text = $"转换失败！{Environment.NewLine}{reason}";
+                }
+            }
+            else
+            {
+                TxtStatus.Text = $"未找到缓存文件，无法转换！";
+            }
+        }
+        else
+        {
+            TxtStatus.Text = $"无法获取歌曲信息！";
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="file_ucs"></param>
+    /// <returns></returns>
+    private async Task<(bool, string)> ConvertFile(string[] file_ucs)
+    {
+        var result = false;
+        var reason = string.Empty;
+
+        (result, reason) = await Task.Run(async () =>
+        {
+            var ret = false;
+            var res = string.Empty;
+
+            _uc_filenames.Clear();
+            _m4a_filenames.Clear();
+
+            var ret_0 = false;
+            var sb = new StringBuilder();
+            foreach (var file_uc in file_ucs)
+            {
+                Dispatcher.Invoke(() => TxtSrcPath.Text = file_uc);
+                (ret_0, res) = await ConvertFileAsync(file_uc);
+                //sb.AppendLine($"{(ret_0 ? "☑" : "☒")} {res}");
+                //sb.AppendLine($"{(ret_0 ? "✓" : "✗")} {res}");
+                sb.AppendLine($"{(ret_0 ? "✔" : "❌")} {res}");
+                //sb.AppendLine($"{(ret_0 ? "✅" : "")} {res}");
+                ret &= ret_0;
+            }
+            reason = sb.ToString().Trim();
+
+            return (ret, res);
+        });
+
+        Dispatcher.Invoke(() =>
+        {
+            TxtStatus.Text = reason;
+            TxtStatus.ToolTip = reason;
+        });
+
+        return (result, reason);
     }
 
     /// <summary>
@@ -349,6 +457,7 @@ public partial class MainWindow : Window
                 }
                 if (song != null)
                 {
+                    #region 使用 TagLibSharp2 更新元数据（不支持 .NET Framework 4.8）
                     // var m4a_file = m4a_meta.GetFileAs<TagLibSharp2.Mp4.Mp4File>();
                     //var m4a_file = await TagLibSharp2.Mp4.Mp4File.ReadFromFileAsync(file_m4a);
                     //if (m4a_file.IsSuccess && m4a_file.File?.Tag is not null)
@@ -401,6 +510,25 @@ public partial class MainWindow : Window
                     File.Move(file_m4a, file_m4a_new, true);
                     _m4a_filename = file_m4a_new;
                     _m4a_filenames.Add(file_m4a_new);
+                    #endregion
+
+                    #region 获取歌词
+                    song.Lyric ??= new Lyric() { ID = song.ID };
+                    if (await song.Lyric.GetLyric())
+                    {
+                        if (song.Lyric.Original?.Length > 0)
+                        {
+                            var file_lyric = System.IO.Path.ChangeExtension(_m4a_filename, ".lrc");
+                            File.WriteAllLines(file_lyric, song.Lyric.Original, encoding: Encoding.UTF8);
+                        }
+                        if (song?.Lyric?.Translated?.Length > 0)
+                        {
+                            var file_lyric = System.IO.Path.ChangeExtension(_m4a_filename, ".chs.lrc");
+                            File.WriteAllLines(file_lyric, song.Lyric.Translated, encoding: Encoding.UTF8);
+                        }
+                    }
+                    #endregion
+
                     Dispatcher.Invoke(() => { TxtStatus.Text = "简单更新元数据和文件名称完成"; });
                 }
             }
@@ -678,34 +806,52 @@ public partial class MainWindow : Window
                 var id = GetIdFromWebLink(file_uc);
                 if (id > 0)
                 {
-                    var site = new NetEaseMusic();
-                    var song = await site.GetSongDetail(id);
-                    if (song != null)
+                    if (IsSong(file_uc))
                     {
-                        TxtStatus.Text = $"已识别链接，歌曲名称：{song.Title}，正在下载...";
-                        // 下载并转换
-                        var uc_file = GetUCFromCache(song.ID);
-                        if (!string.IsNullOrEmpty(uc_file) && File.Exists(uc_file))
+                        TxtStatus.Text = $"识别到歌曲链接，正在获取歌曲信息...";
+                        var site = new NetEaseMusic();
+                        var song = await site.GetSongDetail(id);
+                        ProcessingSong(song);
+                    }
+                    else if (IsAlbum(file_uc))
+                    {
+                        TxtStatus.Text = $"识别到专辑链接，正在获取专辑信息...";
+                        var site = new NetEaseMusic();
+                        var album = await site.GetAlbumDetail(id);
+                        if (album != null)
                         {
-                            TxtSrcPath.Text = uc_file;
-                            var (ret, reason) = await ConvertFileAsync(uc_file);
-                            if (ret)
+                            TxtStatus.Text = $"已识别链接，专辑名称：{album?.Title}，正在下载...";
+                            var songs = album?.Songs ?? [];
+                            foreach (var song in songs)
                             {
-                                await UpdateMetaAsync(_m4a_filename, song);
-                            }
-                            else
-                            {
-                                TxtStatus.Text = $"转换失败！{Environment.NewLine}{reason}";
+                                if (song == null) continue;
+                                ProcessingSong(song);
                             }
                         }
                         else
                         {
-                            TxtStatus.Text = $"未找到缓存文件，无法转换！";
+                            TxtStatus.Text = $"无法获取专辑信息！";
                         }
                     }
-                    else
+                    else if (IsPlaylist(file_uc))
                     {
-                        TxtStatus.Text = $"无法获取歌曲信息！";
+                        TxtStatus.Text = $"识别到歌单链接，正在获取歌单信息...";
+                        var site = new NetEaseMusic();
+                        var album = await site.GetPlayListDetail(id);
+                        if (album != null)
+                        {
+                            TxtStatus.Text = $"已识别链接，专辑名称：{album?.Title}，正在下载...";
+                            var songs = album?.Songs ?? [];
+                            foreach (var song in songs)
+                            {
+                                if (song == null) continue;
+                                ProcessingSong(song);
+                            }
+                        }
+                        else
+                        {
+                            TxtStatus.Text = $"无法获取专辑信息！";
+                        }
                     }
                 }
                 else

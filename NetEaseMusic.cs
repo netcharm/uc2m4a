@@ -81,6 +81,39 @@ namespace _163music
         public string? URL;
     }
 
+    public class Lyric
+    {
+        public int ID;
+        public string[]? Original;
+        public string[]? Translated;
+        public string[]? KaraOK;
+
+        public async Task<bool> GetLyric(bool multilang = true)
+        {
+            var result = false;
+            try
+            {
+                if (ID > 0)
+                {
+                    NetEaseMusic nease = new();
+                    Lyric lyric = multilang ? await nease.GetSongLyricMultiLang(ID) : await nease.GetSongLyric(ID);
+                    if (lyric != null)
+                    {
+                        if (lyric.Original != null) Original = [.. lyric.Original];
+                        if (lyric.Translated != null) Translated = [.. lyric.Translated];
+                        if (lyric.KaraOK != null) KaraOK = [.. lyric.KaraOK];
+
+                        result = true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return (result);
+        }
+    }
+
     public class Song
     {
         public int ID;
@@ -90,6 +123,7 @@ namespace _163music
         public string? Duration;
         public List<Artist> Artists = [];
         public Album? Album;
+        public Lyric? Lyric;
         public string? URL;
         internal string[]? Details;
     }
@@ -232,7 +266,7 @@ namespace _163music
         }
 
         // Get Album info
-        public static async Task<Album> GetAlbumDetail(int iID)
+        public async Task<Album> GetAlbumDetail(int iID)
         {
             List<string> sDetail = [];
             // http://music.163.com/api/album/ + album_id
@@ -240,7 +274,7 @@ namespace _163music
 
             try
             {
-                var uri = new Uri($"http://music.163.com/api/album/{iID}");
+                var uri = new Uri($"https://music.163.com/api/album/{iID}");
                 using var http = new HttpClient();
                 var response = await http.GetAsync(uri);
                 string sContent = await response.Content.ReadAsStringAsync();
@@ -256,7 +290,7 @@ namespace _163music
                 {
                     if (o["code"].ToString() == "200")
                     {
-                        album.URL = $"http://music.163.com/album?id={iID}";
+                        album.URL = $"https://music.163.com/album?id={iID}";
                         album.Title = o["album"]["name"].ToString();
                         //album.Intro = "";
                         //album.PubDate = o["publishTime"].ToString()
@@ -275,7 +309,7 @@ namespace _163music
                             }
                             album.Songs.Add(new Song()
                             {
-                                URL = $"http://http://music.163.com/song?id={song["id"]}",
+                                URL = $"https://music.163.com/song?id={song["id"]}",
                                 ID = Convert.ToInt32(song["id"].ToString()),
                                 Track = Convert.ToInt32(song["no"].ToString()),
                                 Title = song["name"].ToString(),
@@ -296,16 +330,75 @@ namespace _163music
             {
                 sDetail.Add("Get album info failed! \r\n EER: \r\n" + ex.Message);
             }
+            
             return (album);
         }
 
         // Get Album info
-        public static PlayList GetPlayListDetail(int iID)
+        public async Task<PlayList> GetPlayListDetail(int iID)
         {
+            List<string> sDetail = [];
             // 'http://music.163.com/api/playlist/detail?id=' + '&offset=0&total=true&limit=1001'
             PlayList playlist = new();
 
+            try
+            {
+                var uri = new Uri($"http://music.163.com/api/playlist/detail?id={iID}&offset=0&total=true&limit=1001");
+                using var http = new HttpClient();
+                var response = await http.GetAsync(uri);
+                string sContent = await response.Content.ReadAsStringAsync();
 
+                if (sContent[..4].Equals("ERR!"))
+                {
+                    sDetail.Add(string.Concat("Get album info failed! \r\n EER: \r\n", sContent.AsSpan(4)));
+                    return (playlist);
+                }
+
+                JObject? o = JsonConvert.DeserializeObject(sContent ?? string.Empty) as JObject;
+                if (o is not null)
+                {
+                    if (o["code"].ToString() == "200")
+                    {
+                        playlist.URL = $"https://music.163.com/playlist?id={iID}";
+                        playlist.Title = o["playlist"]["name"].ToString();
+                        //playlist.Intro = "";
+                        //playlist.PubDate = o["publishTime"].ToString()
+                        foreach (var song in o["playlist"]["songs"])
+                        {
+                            List<string> artist = [];
+                            List<Artist> artists = [];
+                            foreach (var a in song["artists"])
+                            {
+                                artist.Add(a["name"].ToString());
+                                artists.Add(new Artist()
+                                {
+                                    Name = a["name"].ToString(),
+                                    ID = Convert.ToInt32(a["id"].ToString())
+                                });
+                            }
+                            playlist.Songs.Add(new Song()
+                            {
+                                URL = $"https://music.163.com/song?id={song["id"]}",
+                                ID = Convert.ToInt32(song["id"].ToString()),
+                                Track = Convert.ToInt32(song["no"].ToString()),
+                                Title = song["name"].ToString(),
+                                //Alias = "", //string.Join( " / ", song["alias"] );
+                                Alias = song["alias"] == null ? "" : string.Join(" / ", song["alias"]),
+                                Artists = artists,
+                                Album = new Album()
+                                {
+                                    ID = Convert.ToInt32(song["album"]["id"].ToString()),
+                                    Title = song["album"]["name"].ToString(),
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                sDetail.Add("Get playlist info failed! \r\n EER: \r\n" + ex.Message);
+            }
 
             return (playlist);
         }
@@ -322,7 +415,7 @@ namespace _163music
                 List<string> sAlias = [];
                 List<string> sArtist = [];
 
-                var uri = new Uri($"http://music.163.com/api/song/detail/?id={iID}&ids=[{iID}]");
+                var uri = new Uri($"https://music.163.com/api/song/detail/?id={iID}&ids=[{iID}]");
                 using var http = new HttpClient();
                 var response = await http.GetAsync(uri);
                 string sContent = await response.Content.ReadAsStringAsync();
@@ -388,13 +481,13 @@ namespace _163music
         }
 
         // Get Song Lyric for multi-langiages 
-        public async Task<string[]> GetSongLyric(int iID, bool CRLF = true)
+        public async Task<Lyric> GetSongLyric(int iID, bool CRLF = true)
         {
-
+            var result = new Lyric() { ID = iID };
             List<string> sLRC = [];
             try
             {
-                var uri = new Uri("http://music.163.com/api/song/media?id=" + iID);
+                var uri = new Uri("https://music.163.com/api/song/media?id=" + iID);
                 using var http = new HttpClient();
                 var response = await http.GetAsync(uri);
                 string sContent = await response.Content.ReadAsStringAsync();
@@ -402,26 +495,31 @@ namespace _163music
                 if (sContent[..4].Equals("ERR!"))
                 {
                     sLRC.Add(string.Concat("Get lyric failed! \r\n EER: \r\n", sContent.AsSpan(4)));
-                    return [.. sLRC];
                 }
-
-                JObject o = (JObject)JsonConvert.DeserializeObject(sContent);
-                sLRC.Add(Strip(o["lyric"].ToString(), CRLF));
+                else
+                {
+                    JObject o = (JObject)JsonConvert.DeserializeObject(sContent);
+                    sLRC.Add(Strip(o["lyric"].ToString(), CRLF));
+                }
+                result.Original = [.. sLRC];
             }
             catch (Exception ex)
             {
                 sLRC.Add("Get lyric failed! \r\n EER: \r\n" + ex.Message);
             }
-            return [.. sLRC];
+            return (result);
         }
 
         //Get Song Lyric with translated
-        public async Task<string[]> GetSongLyricMultiLang(int iID)
+        public async Task<Lyric> GetSongLyricMultiLang(int iID)
         {
+            var result = new Lyric() { ID = iID };
             List<string> sLRC = [];
             try
             {
-                var uri = new Uri("http://music.163.com/api/song/lyric?os=pc&lv=-1&kv=-1&tv=-1&id=" + iID);
+                string[] c_sep = [ "\n\r", "\r\n", "\r", "\n" ];
+
+                var uri = new Uri("https://music.163.com/api/song/lyric?os=pc&lv=-1&kv=-1&tv=-1&id=" + iID);
                 using var http = new HttpClient();
                 var response = await http.GetAsync(uri);
                 string sContent = await response.Content.ReadAsStringAsync();
@@ -429,56 +527,64 @@ namespace _163music
                 if (sContent[..4].Equals("ERR!"))
                 {
                     sLRC.Add(string.Concat("Get lyric failed! \r\n EER: \r\n", sContent.AsSpan(4)));
-                    return [.. sLRC];
+                    result.Original = [.. sLRC];
                 }
-
-                JObject o = (JObject)JsonConvert.DeserializeObject(sContent);
-
-                if ((o.Property("uncollected") != null && (bool)o["uncollected"]) ||
-                     (o.Property("nolyric") != null && (bool)o["nolyric"]))
+                else
                 {
-                    sLRC.Add("No Lyric Found!");
-                    return ([.. sLRC]);
-                }
+                    JObject o = (JObject)JsonConvert.DeserializeObject(sContent);
 
-                // Original Language Lyric
-                if (o["lrc"]["lyric"] != null)
-                {
-                    string lyric = Strip( o["lrc"]["lyric"].ToString(), true );
-                    if (lyric.Length > 0)
+                    if ((o.Property("uncollected") != null && (bool)o["uncollected"]) ||
+                        (o.Property("nolyric") != null && (bool)o["nolyric"]))
                     {
-                        sLRC.Add(lyric);
+                        sLRC.Add("No Lyric Found!");
+                        result.Original = [.. sLRC];
                     }
-                }
-                // Translated Lyric
-                if (o["tlyric"]["lyric"] != null)
-                {
-                    string tlyric = Strip( o["tlyric"]["lyric"].ToString(), true );
-                    if (tlyric.Length > 0)
+                    else
                     {
-                        sLRC.Add(tlyric);
+                        // Original Language Lyric
+                        if (o["lrc"]["lyric"] != null)
+                        {
+                            string lyric = Strip( o["lrc"]["lyric"].ToString(), true );
+                            if (lyric.Length > 0)
+                            {
+                                sLRC.Add(lyric);
+                                result.Original = lyric.Split(c_sep, StringSplitOptions.TrimEntries);
+                            }
+                        }
+                        // Translated Lyric
+                        if (o["tlyric"]["lyric"] != null)
+                        {
+                            string tlyric = Strip( o["tlyric"]["lyric"].ToString(), true );
+                            if (tlyric.Length > 0)
+                            {
+                                sLRC.Add(tlyric);
+                                result.Translated = tlyric.Split(c_sep, StringSplitOptions.TrimEntries);
+                            }
+                        }
+                        // KaraOk Lyric ?
+                        if (o["klyric"]["lyric"] != null)
+                        {
+                            string klyric = Strip( o["klyric"]["lyric"].ToString(), true );
+                            if (klyric.Length > 0)
+                            {
+                                sLRC.Add(klyric);
+                                result.KaraOK = klyric.Split(c_sep, StringSplitOptions.TrimEntries);
+                            }
+                        }
                     }
-                }
-                // KaraOk Lyric ?
-                if (o["klyric"]["lyric"] != null)
-                {
-                    string klyric = Strip( o["klyric"]["lyric"].ToString(), true );
-                    if (klyric.Length > 0)
+                    if (sLRC.Count <= 0)
                     {
-                        //sLRC.Add( klyric );
+                        sLRC.Add("No Lyric Found!");
+                        result.Original = [.. sLRC];
                     }
-                }
-
-                if (sLRC.Count <= 0)
-                {
-                    sLRC.Add("No Lyric Found!");
                 }
             }
             catch (Exception ex)
             {
                 sLRC.Add("Get lyric failed! \r\n EER: \r\n" + ex.Message);
+                result.Original = [.. sLRC];
             }
-            return [.. sLRC];
+            return (result);
         }
 
         // search music by title
