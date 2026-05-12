@@ -488,6 +488,9 @@ public partial class MainWindow : Window
                     {
                         m4a.Tag.Title = song.Title;
                         m4a.Tag.TitleSort = song.Alias;
+                        //m4a.Tag.Subtitle = song.Alias;
+                        //m4a.Tag.Description = song.Alias;
+                        //m4a.Tag.Publisher = song.Alias;
                         //m4a.Tag. = song.URL;
                         m4a.Tag.Comment = song.URL;
                         m4a.Tag.Track = (uint)song.Track;
@@ -504,6 +507,37 @@ public partial class MainWindow : Window
                                 m4a.Tag.Pictures = [new TagLib.Picture(data)];
                             }
                         }
+                        if (m4a.Tag is TagLib.CombinedTag ctags)
+                        {
+                            foreach (var tag in ctags.Tags)
+                            {
+                                if (tag is TagLib.Mpeg4.AppleTag atag)
+                                {
+                                    //tag.SetDashBox("com.apple.iTunes", "iTunSMPB", $" 00000000 00000840 00000210 0000000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000");
+                                    //atag.SetText(TagLib.ByteVector.FromString("Publisher", TagLib.StringType.UTF8), string.Join(" / ", song.Artists)+";");
+
+                                    //atag.SetText(TagLib.ByteVector.FromString("Subtitle", TagLib.StringType.UTF8), song.Alias);
+                                    //atag.SetText(TagLib.ByteVector.FromString("Description", TagLib.StringType.UTF8), song.Alias);
+                                    //atag.SetText(TagLib.ByteVector.FromString("Publisher", TagLib.StringType.UTF8), string.Join(" / ", song.Artists));
+                                    
+                                    //atag.SetText(TagLib.ByteVector.FromString("pub", TagLib.StringType.UTF8), string.Join(" / ", song.Artists));
+
+                                    //atag.SetText(TagLib.ByteVector.FromString("WWW", TagLib.StringType.UTF8), song.Album?.URL ?? "Unknown");
+
+                                    //atag.SetText(TagLib.ByteVector.FromString("WWWAUDIOSOURCE", TagLib.StringType.UTF8), song.URL ?? "Unknown");
+                                    //atag.SetText(TagLib.ByteVector.FromString("WWWPUBLISHER", TagLib.StringType.UTF8), song.URL ?? "Unknown");
+                                    //atag.SetData(TagLib.ByteVector.FromString("WWWPUBLISHER", TagLib.StringType.UTF8), song.URL ?? "Unknown");
+
+                                    //atag.SetText(TagLib.ByteVector.FromString("SETSUBTITLE", TagLib.StringType.UTF8), song.Album?.Subtitle ?? "Unknown");
+                                    
+                                    //atag.SetText(TagLib.ByteVector.FromString("PodcastURL", TagLib.StringType.UTF8), song.URL ?? "Unknown");
+                                    //atag.SetText(TagLib.ByteVector.FromString("ORIGARTiST", TagLib.StringType.UTF8), song.Artists.First().URL ?? "Unknown");
+                                    //atag.SetText(TagLib.ByteVector.FromString("ORIGALBUM", TagLib.StringType.UTF8), song.Album?.URL ?? "Unknown");
+                                    
+                                }
+                                //ctag.SetTags(new TagLib.Tag[] { new TagLib.Mpeg4.AppleTag() });
+                            }
+                        }    
                         m4a.Save();
                     }
                     var file_m4a_new = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(file_m4a) ?? string.Empty, $"{song.ID} - {song.Track:#00}_{song.Title}.m4a");
@@ -514,7 +548,7 @@ public partial class MainWindow : Window
 
                     #region 获取歌词
                     song.Lyric ??= new Lyric() { ID = song.ID };
-                    if (await song.Lyric.GetLyric())
+                    if (await song.Lyric.Get())
                     {
                         if (song.Lyric.Original?.Length > 0)
                         {

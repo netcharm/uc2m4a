@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Numerics;
+using System.Printing;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Media;
@@ -87,8 +89,9 @@ namespace _163music
         public string[]? Original;
         public string[]? Translated;
         public string[]? KaraOK;
+        internal string[]? Details;
 
-        public async Task<bool> GetLyric(bool multilang = true)
+        public async Task<bool> Get(bool multilang = true)
         {
             var result = false;
             try
@@ -102,9 +105,27 @@ namespace _163music
                         if (lyric.Original != null) Original = [.. lyric.Original];
                         if (lyric.Translated != null) Translated = [.. lyric.Translated];
                         if (lyric.KaraOK != null) KaraOK = [.. lyric.KaraOK];
+                        if (lyric.Details != null) Details = [.. lyric.Details];
 
                         result = true;
                     }
+                }
+            }
+            catch
+            {
+            }
+            return (result);
+        }
+
+        static public async Task<Lyric> GetById(int id, bool multilang = true)
+        {
+            Lyric result = null;
+            try
+            {
+                if (id > 0)
+                {
+                    NetEaseMusic nease = new();
+                    result = multilang ? await nease.GetSongLyricMultiLang(id) : await nease.GetSongLyric(id);
                 }
             }
             catch
@@ -139,6 +160,7 @@ namespace _163music
         public string? Publisher;
         public string? Cover;
         public List<Song> Songs = [];
+        public int Tracks = 0;
         public int Count
         {
             get
@@ -281,7 +303,7 @@ namespace _163music
 
                 if (sContent[..4].Equals("ERR!"))
                 {
-                    sDetail.Add(string.Concat("Get album info failed! \r\n EER: \r\n", sContent.AsSpan(4)));
+                    sDetail.Add(string.Concat("Get album info failed! \r\n ERROR: \r\n", sContent.AsSpan(4)));
                     return (album);
                 }
 
@@ -292,8 +314,9 @@ namespace _163music
                     {
                         album.URL = $"https://music.163.com/album?id={iID}";
                         album.Title = o["album"]["name"].ToString();
-                        //album.Intro = "";
-                        //album.PubDate = o["publishTime"].ToString()
+                        album.Intro = o["description"].ToString();
+                        album.PubDate = o["publishTime"].ToString();
+                        album.Publisher = o["company"].ToString();
                         foreach (var song in o["album"]["songs"])
                         {
                             List<string> artist = [];
@@ -320,6 +343,10 @@ namespace _163music
                                 {
                                     ID = Convert.ToInt32(song["album"]["id"].ToString()),
                                     Title = song["album"]["name"].ToString(),
+                                    Artist = song["album"]["artist"]["name"].ToString(),
+                                    Tracks = Convert.ToInt32(o["songs"][0]["album"]["size"]),
+                                    PubDate = album.PubDate,
+                                    Publisher = album.Publisher,
                                 },
                             });
                         }
@@ -328,9 +355,9 @@ namespace _163music
             }
             catch (Exception ex)
             {
-                sDetail.Add("Get album info failed! \r\n EER: \r\n" + ex.Message);
+                sDetail.Add("Get album info failed! \r\n ERROR: \r\n" + ex.Message);
             }
-            
+
             return (album);
         }
 
@@ -350,7 +377,7 @@ namespace _163music
 
                 if (sContent[..4].Equals("ERR!"))
                 {
-                    sDetail.Add(string.Concat("Get album info failed! \r\n EER: \r\n", sContent.AsSpan(4)));
+                    sDetail.Add(string.Concat("Get album info failed! \r\n ERROR: \r\n", sContent.AsSpan(4)));
                     return (playlist);
                 }
 
@@ -397,7 +424,7 @@ namespace _163music
             }
             catch (Exception ex)
             {
-                sDetail.Add("Get playlist info failed! \r\n EER: \r\n" + ex.Message);
+                sDetail.Add("Get playlist info failed! \r\n ERROR: \r\n" + ex.Message);
             }
 
             return (playlist);
@@ -422,7 +449,7 @@ namespace _163music
 
                 if (sContent[..4].Equals("ERR!"))
                 {
-                    sDetail.Add(string.Concat("Get title failed! \r\n EER: \r\n", sContent.AsSpan(4)));
+                    sDetail.Add(string.Concat("Get title failed! \r\n ERROR: \r\n", sContent.AsSpan(4)));
                     return (new Song() { Details = [.. sDetail] });
                 }
 
@@ -446,6 +473,10 @@ namespace _163music
                     int iTrack = Convert.ToInt32(o["songs"][0]["no"]);
                     int iTracks = Convert.ToInt32(o["songs"][0]["album"]["size"]);
 
+                    string apubdate = o["songs"][0]["album"]["publishTime"].ToString();
+                    string asubtitle = o["songs"][0]["album"]["alias"].ToString().Trim(['[', ']']).Trim().Trim('"');
+                    string aid = o["songs"][0]["album"]["id"].ToString();
+
                     if (iTracks >= 10000) sTrack = $"{iTrack:D05}";
                     else if (iTracks >= 1000) sTrack = $"{iTrack:D04}";
                     else if (iTracks >= 100) sTrack = $"{iTrack:D03}";
@@ -465,7 +496,7 @@ namespace _163music
                         Title = sTitle,
                         Alias = sAlias.Count > 0 ? string.Join(" ; ", sAlias) : "",
                         Artists = [.. sArtist.Select(a => new Artist() { Name = a })],
-                        Album = new Album() { Title = sAlbum, Cover = sCover },
+                        Album = new Album() { Title = sAlbum, Subtitle = asubtitle, Cover = sCover, PubDate = apubdate, Tracks = iTracks, URL = $"https://music.163.com/album?id={aid}" },
                         Track = iTrack,
                         URL = $"https://music.163.com/song?id={iID}",
                         Details = [.. sDetail]
@@ -474,7 +505,7 @@ namespace _163music
             }
             catch (Exception ex)
             {
-                sDetail.Add("Get title failed! \r\n EER: \r\n" + ex.Message);
+                sDetail.Add("Get title failed! \r\n ERROR: \r\n" + ex.Message);
                 song = new Song() { Details = [.. sDetail] };
             }
             return (song);
@@ -494,18 +525,20 @@ namespace _163music
 
                 if (sContent[..4].Equals("ERR!"))
                 {
-                    sLRC.Add(string.Concat("Get lyric failed! \r\n EER: \r\n", sContent.AsSpan(4)));
+                    sLRC.Add(string.Concat("Get lyric failed! \r\n ERROR: \r\n", sContent.AsSpan(4)));
+                    result.Details = [.. sLRC];
                 }
                 else
                 {
                     JObject o = (JObject)JsonConvert.DeserializeObject(sContent);
                     sLRC.Add(Strip(o["lyric"].ToString(), CRLF));
+                    result.Original = [.. sLRC];
                 }
-                result.Original = [.. sLRC];
             }
             catch (Exception ex)
             {
-                sLRC.Add("Get lyric failed! \r\n EER: \r\n" + ex.Message);
+                sLRC.Add("Get lyric failed! \r\n ERROR: \r\n" + ex.Message);
+                result.Details = [.. sLRC];
             }
             return (result);
         }
@@ -526,8 +559,8 @@ namespace _163music
 
                 if (sContent[..4].Equals("ERR!"))
                 {
-                    sLRC.Add(string.Concat("Get lyric failed! \r\n EER: \r\n", sContent.AsSpan(4)));
-                    result.Original = [.. sLRC];
+                    sLRC.Add(string.Concat("Get lyric failed! \r\n ERROR: \r\n", sContent.AsSpan(4)));
+                    result.Details = [.. sLRC];
                 }
                 else
                 {
@@ -542,7 +575,7 @@ namespace _163music
                     else
                     {
                         // Original Language Lyric
-                        if (o["lrc"]["lyric"] != null)
+                        if (o["lrc"] != null && o["lrc"]["lyric"] != null)
                         {
                             string lyric = Strip( o["lrc"]["lyric"].ToString(), true );
                             if (lyric.Length > 0)
@@ -552,7 +585,7 @@ namespace _163music
                             }
                         }
                         // Translated Lyric
-                        if (o["tlyric"]["lyric"] != null)
+                        if (o["tlyric"] != null && o["tlyric"]["lyric"] != null)
                         {
                             string tlyric = Strip( o["tlyric"]["lyric"].ToString(), true );
                             if (tlyric.Length > 0)
@@ -562,7 +595,7 @@ namespace _163music
                             }
                         }
                         // KaraOk Lyric ?
-                        if (o["klyric"]["lyric"] != null)
+                        if (o["klyric"] != null && o["klyric"]["lyric"] != null)
                         {
                             string klyric = Strip( o["klyric"]["lyric"].ToString(), true );
                             if (klyric.Length > 0)
@@ -575,14 +608,14 @@ namespace _163music
                     if (sLRC.Count <= 0)
                     {
                         sLRC.Add("No Lyric Found!");
-                        result.Original = [.. sLRC];
+                        result.Details = [.. sLRC];
                     }
                 }
             }
             catch (Exception ex)
             {
-                sLRC.Add("Get lyric failed! \r\n EER: \r\n" + ex.Message);
-                result.Original = [.. sLRC];
+                sLRC.Add("Get lyric failed! \r\n ERROR: \r\n" + ex.Message);
+                result.Details = [.. sLRC];
             }
             return (result);
         }
@@ -609,7 +642,7 @@ namespace _163music
 
                 if (sContent[..4].Equals("ERR!"))
                 {
-                    //sMusic.Add( "Search Music failed! \r\n EER: \r\n" + sContent.Substring( 4 ) );
+                    //sMusic.Add("Search Music failed! \r\n ERROR: \r\n" + sContent.Substring(4));
                     return [.. sMusic];
                 }
 
@@ -670,7 +703,7 @@ namespace _163music
             }
             catch (Exception ex)
             {
-                //sMusic.Add( "Search Music failed! \r\n EER: \r\n" + ex.Message );
+                //sMusic.Add( "Search Music failed! \r\n ERROR: \r\n" + ex.Message );
             }
             return [.. sMusic];
         }
